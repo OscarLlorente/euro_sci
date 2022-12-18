@@ -13,46 +13,51 @@ import random
 
 class BaseDataset(Dataset):
 
-    def __init__(self, save_path: str, projects_path: str, codes_path: str) -> None:
+    def __init__(self, save_path: str, df_path: str) -> None:
         
         if not os.path.exists(save_path):
-            codes = pd.read_excel(codes_path, usecols=['code'], dtype={'code': 'string'})
-            codes = codes.dropna().reset_index()
-            codes = codes['code'].unique().tolist()
-            codes = dict(zip(codes, range(len(codes))))
-            self.codes = codes
+            # codes = pd.read_excel(codes_path, usecols=['code'], dtype={'code': 'string'})
+            # codes = codes.dropna().reset_index()
+            # codes = codes['code'].unique().tolist()
+            # codes = dict(zip(codes, range(len(codes))))
+            # self.codes = codes
 
-            projects = pd.read_excel(projects_path, usecols=['title', 'summary', 'euroSciVocCode'], 
-                                    dtype={'title': 'string', 'summary': 'string','euroSciVocCode': 'string'})
-            projects = projects.dropna().reset_index()
-            projects['euroSciVocCode'] = projects['euroSciVocCode'].apply(lambda code: code[1:-1].split(',')[0])
-            self.projects = projects
+            # projects = pd.read_excel(projects_path, usecols=['title', 'summary', 'euroSciVocCode'], 
+            #                         dtype={'title': 'string', 'summary': 'string','euroSciVocCode': 'string'})
+            # projects = projects.dropna().reset_index()
+            # projects['euroSciVocCode'] = projects['euroSciVocCode'].apply(lambda code: code[1:-1].split(',')[0])
+            # self.projects = projects
+            
+            df = pd.read_csv(df_path, usecols=['Title', 'Review Text', 'Rating'], 
+                             dtype={'Title': 'string', 'Review Text': 'string','Rating': int})
+            df = df.dropna().reset_index()
+            self.df = df
 
             tokenizer = BertTokenizer.from_pretrained('bert-base-cased')
 
             self.texts = [
-                tokenizer(self.projects['title'][index] + self.projects['summary'][index], padding='max_length', 
+                tokenizer(self.df['Title'][index] + self.df['Review Text'][index], padding='max_length', 
                           max_length = 512, 
-                          truncation=True,return_tensors="pt") for index in range(self.projects.shape[0])]
+                          truncation=True,return_tensors="pt") for index in range(len(self))]
             
             os.makedirs(save_path)
             pickle.dump(self.texts, open(f'{save_path}/texts', 'wb'))
-            pickle.dump(self.codes, open(f'{save_path}/codes', 'wb'))
-            pickle.dump(self.projects, open(f'{save_path}/projects', 'wb'))
+            pickle.dump(self.df, open(f'{save_path}/df', 'wb'))
+            # pickle.dump(self.projects, open(f'{save_path}/projects', 'wb'))
             
         else:
             self.texts = pickle.load(open(f'{save_path}/texts', 'rb'))
-            self.codes = pickle.load(open(f'{save_path}/codes', 'rb'))
-            self.projects = pickle.load(open(f'{save_path}/projects', 'rb'))
+            self.df = pickle.load(open(f'{save_path}/df', 'rb'))
+            # self.projects = pickle.load(open(f'{save_path}/projects', 'rb'))
 
     def __len__(self) -> int:
-        return self.projects.shape[0]
+        return self.df.shape[0]
 
     def __getitem__(self, index: int) -> tuple[torch.Tensor, torch.Tensor, int]:
         
         input_ids = self.texts[index]['input_ids'][0]
         attention_mask = self.texts[index]['attention_mask'][0]
-        label = self.codes[self.projects['euroSciVocCode'][index]]
+        label = self.df['Rating'][index] - 1
         return input_ids, attention_mask, label
 
 def load_base_dataset(
@@ -65,7 +70,7 @@ def load_base_dataset(
 ) -> tuple[DataLoader, DataLoader, DataLoader]:
     
     # define the full dataset
-    full_dataset = BaseDataset(save_path, projects_path, codes_path)
+    full_dataset = BaseDataset(save_path, projects_path)
     
     # split dataset into train, val and test
     train_size = int(split_sizes[0] * len(full_dataset))

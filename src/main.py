@@ -20,13 +20,13 @@ def main() -> None:
     epochs = 10
     lr = 1e-3
     
-    train_data, val_data, test_data = load_base_dataset('data/tranformer_dataset', 'data/projects.xlsx', 
+    train_data, val_data, test_data = load_base_dataset('data/tranformer_dataset', 'data/df.csv', 
                                                         'data/SciVocCodes.xlsx', (0.8, 0.1, 0.1))
     
     writer = SummaryWriter('runs/model')
     
     # define model
-    model = BertClassifier((1024, 512), 1010, 0.3).to(device)
+    model = BertClassifier((512, 128), 5, 0.3).to(device)
     model.bert.requires_grad_(False)
     
     # define optimizer
@@ -35,7 +35,7 @@ def main() -> None:
     # define loss function
     loss = torch.nn.CrossEntropyLoss()
     
-    accuracy = torchmetrics.Accuracy(task="multiclass", num_classes=1010).to(device)
+    accuracy = torchmetrics.Accuracy(task="multiclass", num_classes=5).to(device)
     
     progress_bar = tqdm(range(epochs*len(train_data)))
     
