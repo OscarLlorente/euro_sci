@@ -1,58 +1,72 @@
-# deep learning libraries
+# machine learning libraries
 import torch
 import numpy as np
 import pandas as pd
-from transformers import BertTokenizer
+from transformers import AutoTokenizer
 from torch.utils.data import Dataset, DataLoader
+from sklearn.feature_extraction.text import TfidfVectorizer
 
 # other libraries
 import os
 import pickle
 import random
+from abc import ABC, abstractmethod
+from typing import Literal
 
 
-class BaseDataset(Dataset):
-
-    def __init__(self, save_path: str, df_path: str) -> None:
+class BaseDataset(Dataset, ABC):
+    
+    def __init__(self, df_path: str) -> None:
         
-        if not os.path.exists(save_path):
-            # codes = pd.read_excel(codes_path, usecols=['code'], dtype={'code': 'string'})
-            # codes = codes.dropna().reset_index()
-            # codes = codes['code'].unique().tolist()
-            # codes = dict(zip(codes, range(len(codes))))
-            # self.codes = codes
-
-            # projects = pd.read_excel(projects_path, usecols=['title', 'summary', 'euroSciVocCode'], 
-            #                         dtype={'title': 'string', 'summary': 'string','euroSciVocCode': 'string'})
-            # projects = projects.dropna().reset_index()
-            # projects['euroSciVocCode'] = projects['euroSciVocCode'].apply(lambda code: code[1:-1].split(',')[0])
-            # self.projects = projects
             
-            df = pd.read_csv(df_path, usecols=['Title', 'Review Text', 'Rating'], 
-                             dtype={'Title': 'string', 'Review Text': 'string','Rating': int})
-            df = df.dropna().reset_index()
-            self.df = df
-
-            tokenizer = BertTokenizer.from_pretrained('bert-base-cased')
-
-            self.texts = [
-                tokenizer(self.df['Title'][index] + self.df['Review Text'][index], padding='max_length', 
-                          max_length = 512, 
-                          truncation=True,return_tensors="pt") for index in range(len(self))]
-            
-            os.makedirs(save_path)
-            pickle.dump(self.texts, open(f'{save_path}/texts', 'wb'))
-            pickle.dump(self.df, open(f'{save_path}/df', 'wb'))
-            # pickle.dump(self.projects, open(f'{save_path}/projects', 'wb'))
-            
-        else:
-            self.texts = pickle.load(open(f'{save_path}/texts', 'rb'))
-            self.df = pickle.load(open(f'{save_path}/df', 'rb'))
-            # self.projects = pickle.load(open(f'{save_path}/projects', 'rb'))
+        df = pd.read_csv(df_path, usecols=['Title', 'Review Text', 'Rating'], 
+                            dtype={'Title': 'string', 'Review Text': 'string', 'Rating': int})
+        df = df.dropna().reset_index()
+        self.df = df
 
     def __len__(self) -> int:
         return self.df.shape[0]
 
+    @abstractmethod
+    def __getitem__(self, index: int) -> any:
+        pass
+    
+class TfIdfDataset(BaseDataset):
+    
+    def __init__(self, df_path: str) -> None:
+        
+        super().__init__(df_path)
+        
+        self.texts = [preprocess(self.df['Title'][index] + self.df['Review Text'][index]) for index in range(len(self))]
+        tfidf = TfidfVectorizer(max_features=5000)
+        self.x = (tfidf.fit_transform(self.texts)).toarray()
+        
+    # overriding method
+    def __getitem__(self, index: int) -> tuple[torch.Tensor, int]:
+        tf_idf_vector = self.x[index, :]
+        label = self.df['Rating'][index] - 1
+        return tf_idf_vector, label
+
+
+class BertDataset(BaseDataset):
+
+    def __init__(self, df_path: str) -> None:
+            
+        super().__init__(df_path)
+        
+        df = pd.read_csv(df_path, usecols=['Title', 'Review Text', 'Rating'], 
+                            dtype={'Title': 'string', 'Review Text': 'string', 'Rating': int})
+        df = df.dropna().reset_index()
+        self.df = df
+
+        tokenizer = AutoTokenizer.from_pretrained('activebus/BERT-XD_Review')
+
+        self.texts = [
+            tokenizer(self.df['Title'][index] + self.df['Review Text'][index], padding='max_length', 
+                        max_length = 512, 
+                        truncation=True,return_tensors="pt") for index in range(len(self))]
+
+    # overriding method
     def __getitem__(self, index: int) -> tuple[torch.Tensor, torch.Tensor, int]:
         
         input_ids = self.texts[index]['input_ids'][0]
@@ -60,17 +74,29 @@ class BaseDataset(Dataset):
         label = self.df['Rating'][index] - 1
         return input_ids, attention_mask, label
 
+
 def load_base_dataset(
-    save_path: str,
-    projects_path: str, 
-    codes_path: str, 
+    df_path: str,
+    save_path: str, 
+    dataset_type: Literal['tfidf', 'bert'],
     split_sizes: tuple[float, float, float],
     batch_size: int = 200,
     shuffle: bool = True
 ) -> tuple[DataLoader, DataLoader, DataLoader]:
     
-    # define the full dataset
-    full_dataset = BaseDataset(save_path, projects_path)
+    # load dataset if save path exists
+    if os.path.exists(save_path):
+        full_dataset = pickle.load(open({save_path}, 'rb'))
+    
+    else:
+        # define the full dataset
+        if dataset_type == 'tfidf':
+            full_dataset = TfIdfDataset(df_path)
+        
+        elif dataset_type == 'bert':
+            full_dataset = BertDataset(df_path)
+            
+        torch.save(full_dataset, save_path)
     
     # split dataset into train, val and test
     train_size = int(split_sizes[0] * len(full_dataset))
@@ -85,7 +111,36 @@ def load_base_dataset(
     test_dataloader = DataLoader(test_dataset, batch_size=batch_size, shuffle=shuffle)
     
     return train_dataloader, val_dataloader, test_dataloader
+
+
+def preprocess(text: str) -> list[str]:
+    pass
+
+
+def accuracy(logits: torch.Tensor, labels: torch.Tensor) -> float:
+    """
+    This method computes accuracy from logits and labels
     
+    Parameters
+    ----------
+    logits : torch.Tensor
+        batch of logits. Dimensions: [batch, number of classes]
+    labels : torch.Tensor
+        batch of labels. Dimensions: [batch]
+        
+    Returns
+    -------
+    float
+        accuracy of predictions
+    """
+
+    # compute predictions
+    predictions = logits.argmax(1).type_as(labels)
+
+    # compute accuracy from predictions
+    result = float(predictions.eq(labels).float().mean().cpu().detach().numpy())
+
+    return result
 
 
 def set_seed(seed: int) -> None:
