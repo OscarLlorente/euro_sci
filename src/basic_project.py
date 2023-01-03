@@ -15,6 +15,10 @@ import pandas as pd  # For data handling
 from collections import defaultdict  # For word frequency
 import spacy  # For preprocessing
 import logging  # Setting up the loggings to monitor gensim
+from nltk.corpus import stopwords
+from nltk.tokenize import word_tokenize
+from nltk.stem import WordNetLemmatizer
+
 logging.basicConfig(format="%(levelname)s - %(asctime)s: %(message)s", datefmt= '%H:%M:%S', level=logging.INFO)
 
 
@@ -36,8 +40,8 @@ class Text_preprocessing():
         self.df = df
     
     # Processing dataframe.
-    def reviews(self,column):
-        df = self.df[column]
+    def reviews(self,column, column_label):
+        df = self.df[[column, column_label]]
         return df.dropna().reset_index(drop=True)
     
     def homogenization(self, doc):
@@ -52,6 +56,49 @@ class Text_preprocessing():
         nlp = spacy.load("en_core_web_sm") # para acelerar el proceso de limpieza
         cleaning = (re.sub("[^A-Za-z']+", ' ', str(row)).lower() for row in data)
         return [self.homogenization(doc) for doc in nlp.pipe(cleaning, batch_size=5000)]
+    
+def extract_data(projects_path, codes_path):
+    
+    codes_path = 'data/SciVocCodes.xlsx'
+    projects_path = 'data/projects.xlsx'
+
+    codes = pd.read_excel(codes_path, usecols=['code', 'full_code'], dtype={'code': 'string', 'full_code': 'string'})
+    codes = codes.dropna().reset_index()
+    codes['full_code'] = codes['full_code'].apply(lambda x: x[1:].split('/')[0])
+    full_codes = codes['full_code'].tolist()
+    codes = codes['code'].tolist()
+    codes = dict(zip(codes, full_codes))
+
+    classes_dict = {'21': '0', '23': '1', '25': '2', '27': '3', '29': '4', '31': '5'}
+
+    projects = pd.read_excel(projects_path, usecols=['title', 'summary', 'euroSciVocCode'], 
+                                        dtype={'title': 'string', 'summary': 'string','euroSciVocCode': 'string'})
+    projects = projects.dropna().reset_index()
+    projects['euroSciVocCode'] = \
+        projects['euroSciVocCode'].apply(lambda code: classes_dict[codes[code[1:-1].split(',')[0]]])
+    
+    projects['summary'] = projects['title'] + projects['summary']
+    
+    corpus = projects['summary']
+    labels = projects['euroSciVocCode']
+
+    return corpus, labels
+    
+    
+def preprocessing(texts):
+    
+    stop_words = set(stopwords.words('english'))
+    lemmatizer = WordNetLemmatizer()
+    
+    texts = [word_tokenize(text) for text in texts]
+    texts = [re.sub("[^A-Za-z']+", ' ', ' '.join(text)).lower() for text in texts]
+    texts = [[word for word in text.split(' ') if word not in stop_words] for text in texts]
+    texts = [[lemmatizer.lemmatize(word) for word in text] for text in texts]
+    texts = [' '.join(text) for text in texts]
+    
+    return texts
+    
+    
 
 
 #==============================================================#
