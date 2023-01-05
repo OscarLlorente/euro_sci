@@ -83,7 +83,7 @@ class Text_Vectorization():
         self.df = df
     
 
-class Classificatio():
+class Classification():
     def __init__(self, df):
         self.df = df
 
