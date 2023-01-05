@@ -98,3 +98,4 @@ class BasicModel:
     def classification_report(self) -> pd.DataFrame:
         return classification_report(self.y_test, self.y_pred)
     
+    
